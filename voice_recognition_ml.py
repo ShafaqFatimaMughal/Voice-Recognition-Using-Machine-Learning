@@ -17,8 +17,8 @@ import math
 # from tqdm import tqdm
 import numpy as np
 # import pandas as pd
-# import json
-# import matplotlib.pyplot as plt
+import json
+import matplotlib.pyplot as plt
 # from sklearn.model_selection import train_test_split
 from statistics import mode
 # import seaborn as sns
@@ -32,33 +32,42 @@ from statistics import mode
 # ## Initializing Paths
 # """
 
-# training_dataset_path = "/content/drive/MyDrive/AI_voice_data/TrainingData" # path of json saved in drive
-# training_json_path = "/content/train_mfcc_data.json" # path of json when json created first time
+# training_dataset_path = "/content/drive/MyDrive/AI_voice_data/TrainingData" # path of data saved in drive
+# training_mfcc_json_path = "/content/drive/MyDrive/AI_voice_data/train_mfcc_data.json" # path of json when json created first time
+# training_stft_json_path = "/content/drive/MyDrive/AI_voice_data/train_stft_data.json" # path of json when json created first time
 
-# """##Setting Hyper-Parametes"""
+"""##Setting Hyper-Parametes"""
 
 # Hyper-parameters for Audio Images
 SAMPLE_RATE = 22050
 TRACK_SAMPLE = 10
 NUM_CLASSES = 10
 num_mfcc = 32
-n_fft = 2048
 hop_length = 512
 
-# # Hyper-paremeters for MLP
-# EPOCHS = 30
-# TRAIN_TEST_SPLIT = 0.2
-# LEARNING_RATE = 0.0001
-# BATCH_SIZE = 10
-# SHUFFLE_DATA = True
+# Hyper-paremeters for MLP
+EPOCHS = 30
+TRAIN_TEST_SPLIT = 0.2
+LEARNING_RATE = 0.0005
+BATCH_SIZE = 10
+SHUFFLE_DATA = True
+
+# # Mode for stft or mfcc
+# Image = "mfcc"
+
+# # If you want to save
+# save = True
+
+# # If you want to Create new JSON or Load JSON Data from drive
+# create = False
 
 # """## Creating MFCC Dataset"""
 
-# def save_mfcc(dataset_path, json_path):
+# def save_audio_features(dataset_path, json_path, image=Image):
 #     data = {
 #         "mapping": [],
 #         "labels": [],
-#         "mfcc": []
+#         "image": []
 #     }
 
 #     for root, _, files in os.walk(dataset_path):
@@ -86,9 +95,16 @@ hop_length = 512
 #                 start = i * SAMPLE_RATE
 #                 finish = (i + TRACK_SAMPLE) * SAMPLE_RATE
 
-#                 mfcc = librosa.feature.mfcc(signal[start:finish], sample_rate, n_mfcc=num_mfcc, n_fft=n_fft, hop_length=hop_length) 
-#                 mfcc = mfcc.T
-#                 data["mfcc"].append(mfcc.tolist()) # converting to lst as numpy arr not stored by json file
+#                 # Shape (431, 32)
+#                 if image == "mfcc":
+#                     img = librosa.feature.mfcc(signal[start:finish], sample_rate, n_mfcc=num_mfcc, n_fft = 2048, hop_length=hop_length) 
+#                     img = img.T
+
+#                 else:
+#                     img = librosa.stft(signal[start:finish], n_fft = 512, hop_length = hop_length)
+#                     img = np.abs(img.T)
+
+#                 data["image"].append(img.tolist()) # converting to lst as numpy arr not stored by json file
 #                 data["labels"].append(data["mapping"].index(person)) # stores the genre label index
 
 #                 # print("{}, segment:{}".format(file_path, d+1))
@@ -226,27 +242,28 @@ def softmax(z):
   probs = exp/np.sum(exp,axis=1, keepdims=True)
   return probs
 
-# def one_hot(y,c):
-#    y_hot = np.zeros((len(y), c))
-#    y_hot[np.arange(len(y)), y] = 1
-#    return y_hot
+def one_hot(y,c):
+   y_hot = np.zeros((len(y), c))
+   y_hot[np.arange(len(y)), y] = 1
+   return y_hot
 
-# def cross_entropy_loss(logits,y):
-#    y_hat = softmax(logits)
-#    y_hot = one_hot(y, NUM_CLASSES)
-#    loss = -np.sum(np.log(y_hat)*y_hot)/y.shape[0]
-#    return loss
+def cross_entropy_loss(logits,y):
+   y_hat = softmax(logits)
+   y_hot = one_hot(y, NUM_CLASSES)
+   loss = -np.sum(np.log(y_hat)*y_hot)/y.shape[0]
+   return loss
 
-# def grad_cross_entropy_loss(logits,y):
-#     y_hat = softmax(logits)
-#     y_hot = one_hot(y, NUM_CLASSES)
-#     return (y_hat - y_hot)
+def grad_cross_entropy_loss(logits,y):
+    y_hat = softmax(logits)
+    y_hot = one_hot(y, NUM_CLASSES)
+    return (y_hat - y_hot)
 
 """## Main MLP Class"""
 
 class MLP:
   def __init__(self,n) -> None:
       self.network = n
+  
   def forward(self, X):
     """
     Compute activations of all network layers by applying them sequentially.
@@ -263,6 +280,7 @@ class MLP:
     
     assert len(activations) == len(self.network)
     return activations
+
   def predict(self,X):
       """
       Compute network predictions. Returning indices of largest Logit probability
@@ -270,45 +288,63 @@ class MLP:
       logits = self.forward(X)[-1]
       return np.argmax(softmax(logits),axis=1)
   
-#   def train(self,X,y):
-#       """
-#       Train our network on a given batch of X and y.
-#       We first need to run forward to get all layer activations.
-#       Then we can run layer.backward going from last to first layer.
-#       After we have called backward for all layers, all Dense layers have already made one gradient step.
-#       """
+  def train(self,X,y):
+      """
+      Train our network on a given batch of X and y.
+      We first need to run forward to get all layer activations.
+      Then we can run layer.backward going from last to first layer.
+      After we have called backward for all layers, all Dense layers have already made one gradient step.
+      """
       
-#       # Get the layer activations
-#       layer_activations = self.forward(X)
-#       layer_inputs = [X]+layer_activations  #layer_input[i] is an input for network[i]
-#       logits = layer_activations[-1]
+      # Get the layer activations
+      layer_activations = self.forward(X)
+      layer_inputs = [X]+layer_activations  #layer_input[i] is an input for network[i]
+      logits = layer_activations[-1]
       
-#       # Compute the loss and the initial gradient
-#       loss = cross_entropy_loss(logits,y)
-#       loss_grad = grad_cross_entropy_loss(logits,y)
+      # Compute the loss and the initial gradient
+      loss = cross_entropy_loss(logits,y)
+      loss_grad = grad_cross_entropy_loss(logits,y)
       
-#       # Propagate gradients through the network
-#       # Reverse propogation as this is backprop
-#       for layer_index in range(len(self.network))[::-1]:
-#           layer = self.network[layer_index]       
-#           loss_grad = layer.backward(layer_inputs[layer_index],loss_grad) #grad w.r.t. input, also weight updates
+      # Propagate gradients through the network
+      # Reverse propogation as this is backprop
+      for layer_index in range(len(self.network))[::-1]:
+          layer = self.network[layer_index]       
+          loss_grad = layer.backward(layer_inputs[layer_index],loss_grad) #grad w.r.t. input, also weight updates
           
-#       return np.mean(loss)
+      return np.mean(loss)
 
-"""# Loading Dataset"""
+# """# Loading Dataset"""
 
 # def load_data(data_path): # open and read json from given path
 #     with open(data_path, "r") as fp:
 #         data = json.load(fp)
 
 #     # save mfcc in X and relevant data in y and z
-#     X = np.array(data["mfcc"])
+#     X = np.array(data["image"])
 #     y = np.array(data["labels"]) # indexes of the names that correspond to mapping
 #     z = np.array(data["mapping"]) # names
+
+#     arr = np.array(range(len(X)))
+#     perm = np.random.permutation(arr)
+
+#     X = X[perm]
+#     y = y[perm]
 #     return X, y, z
 
 # def prepare_datasets(dataset_path, test_size):
 #     X, y, z = load_data(dataset_path) # load data
+
+#     # plotting bar chart to visualize dataset
+#     unique, counts = np.unique(y, return_counts=True) # unique indexes and the frequecnt of each in counts
+#     dictionary = dict(zip(unique, counts))
+#     new_dic = {}
+
+#     for i in dictionary:
+#         new_dic[z[i]] = dictionary[i] # Key value pair with name and frequency
+    
+#     plt.bar(list(new_dic.keys()), height=list(new_dic.values()))
+#     plt.xticks(rotation=45) # tilt labels to avoid overlap
+#     plt.show()
 
 #     # create train test split
 #     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size)
@@ -319,15 +355,33 @@ class MLP:
 
 #     return X_train, X_test, y_train,  y_test, z
 
-# """## Creating or Loading JSON"""
+# """## Creating or Loading JSON
 
-# # Create and Load Dataset from notebook
-# # save_mfcc(training_dataset_path, training_json_path) # Creating Training Data from dataset
-# # X_train, X_test, y_train,  y_test, z = prepare_datasets(training_json_path, TRAIN_TEST_SPLIT)
+# Create JSON from Dataset
+# """
 
-# # Loading JSON from Drive
-# drive_json_path = "/content/drive/MyDrive/AI_voice_data/train_mfcc_data.json"
-# X_train, X_test, y_train,  y_test, z = prepare_datasets(drive_json_path, TRAIN_TEST_SPLIT)
+# if create == True:
+#     # Create and Load Dataset from notebook
+#     if Image == "mfcc":
+#         # mfcc
+#         save_audio_features(training_dataset_path, training_mfcc_json_path, Image) # Creating Training Data from dataset
+#         X_train, X_test, y_train,  y_test, z = prepare_datasets(training_mfcc_json_path, TRAIN_TEST_SPLIT)
+
+#     else:
+#         # stft
+#         save_audio_features(training_dataset_path, training_stft_json_path, Image) # Creating Training Data from dataset
+#         X_train, X_test, y_train,  y_test, z = prepare_datasets(training_stft_json_path, TRAIN_TEST_SPLIT)
+
+# else:
+#     if Image == "mfcc":
+#         # Loading MFCC JSON from Drive
+#         drive_mfcc_json_path = "/content/drive/MyDrive/AI_voice_data/train_mfcc_data.json"
+#         X_train, X_test, y_train,  y_test, z = prepare_datasets(drive_mfcc_json_path, TRAIN_TEST_SPLIT)
+
+#     else:
+#         # Loading STFT JSON from Drive
+#         drive_stft_json_path = "/content/drive/MyDrive/AI_voice_data/train_stft_data.json"
+#         X_train, X_test, y_train,  y_test, z = prepare_datasets(drive_stft_json_path, TRAIN_TEST_SPLIT)
 
 # """Flattening the Data For MLP"""
 
@@ -339,6 +393,7 @@ class MLP:
 # network = []
 # train_log = [0]
 # val_log = []
+# loss_log = []
 
 # # X_train_flatten.shape[1] is input layer
 # network.append(Dense(X_train_flatten.shape[1], 1024, learning_rate = LEARNING_RATE)) # Hidden layer with 1024 nuerons
@@ -363,15 +418,20 @@ class MLP:
 
 # # Training the model
 # for epoch in tqdm(range(EPOCHS), desc = "Training"):
+#     loss = 0.0
+#     num_batches = 0
 #     for x_batch,y_batch in iterate_minibatches(X_train_flatten, y_train, batchsize=BATCH_SIZE, shuffle=SHUFFLE_DATA):
-#         model.train(x_batch, y_batch)
-    
+#         loss += model.train(x_batch, y_batch)
+#         num_batches += 1
+
 #     train_log.append(np.mean(model.predict(X_train_flatten)==y_train))
+#     loss_log.append(loss/num_batches)
 
 #     print("Epoch", epoch)
-#     print("Train accuracy:", train_log[-1])
+#     print("Train accuracy:", train_log[-1], " Training Loss:", loss_log[-1])
 
-# plt.plot(train_log, label='train accuracy')
+# plt.plot(train_log, label='Train Accuracy')
+# plt.plot(loss_log, label="Training Loss")
 # plt.legend(loc='best')
 # plt.grid()
 # plt.show()
@@ -402,7 +462,7 @@ class MLP:
 
 # """#Validating Data on Outside data"""
 
-def new_voice_predict(audio_path, model, z):
+def new_voice_predict(audio_path, model, z, Image):
     name = audio_path.split("/")[-1].split("_")[0]
     signal, sample_rate = librosa.load(audio_path, sr=SAMPLE_RATE)
     duration = librosa.get_duration(y=signal, sr=sample_rate) # duration in seconds
@@ -414,31 +474,63 @@ def new_voice_predict(audio_path, model, z):
         if (i+10) > duration:
           continue
     
+        if d == 5:
+          break
         start = i * SAMPLE_RATE
         finish = (i + TRACK_SAMPLE) * SAMPLE_RATE
 
-        # OR you can just do
-        # data = librosa.load(file_path, sr=SAMPLE_RATE, offset = i, duration = i + TRACK_SAMPLE)
+        if Image == "mfcc":
+            img = librosa.feature.mfcc(signal[start:finish], sample_rate, n_mfcc=num_mfcc, n_fft=2048, hop_length=hop_length)
+            img = img.T
 
-        mfcc = librosa.feature.mfcc(signal[start:finish], sample_rate, n_mfcc=num_mfcc, n_fft=n_fft, hop_length=hop_length)
-        mfcc = mfcc.T
-        data = np.array(mfcc.tolist()) # converting to lst
+        else:
+            img = librosa.stft(signal[start:finish], n_fft = 512, hop_length = hop_length)
+            img = np.abs(img.T)
+
+        data = np.array(img.tolist()) # converting to lst
         data = data.reshape((1, -1)) # flattening
         
         prediction = model.predict(data)
         results.append(prediction[0])
+        
+        d+=1
 
     return z[mode(results)], name
 
 # # Testing model on new data
-# expected, actual = new_voice_predict("/content/drive/MyDrive/AI_voice_data/TestingData/Fizza Rubab_Test.wav", model, z)
+# fname = "Fizza Rubab_Test.wav"
+
+# expected, actual = new_voice_predict("/content/drive/MyDrive/AI_voice_data/TestingData/"+ fname, model, z, Image)
+
 # print("Voice Audio Results => Expected:{}, Actual:{}. Correct Prediction:{}".format(expected, actual, bool(expected==actual)))
 
-# # save the model to disk
-# filename = 'VoiceRecognitionModel.pkl'
-# pickle.dump(model, open(filename, 'wb'))
+# # Save the model to disk
+# model_loc = "/content/drive/MyDrive/AI_voice_data/"
 
-# # testing by loading the model
-# loaded_model = pickle.load(open('VoiceRecognitionModel.pkl', 'rb'))
-# expected, actual = new_voice_predict("/content/drive/MyDrive/AI_voice_data/TestingData/Fizza Rubab_Test.wav", model, z)
+# if save==True:
+#     if Image == "mfcc":
+#         # mfcc
+#         filename = model_loc + 'mfcc_VoiceRecognitionModel.pkl'
+
+#     else:
+#         # stft
+#         filename = model_loc + 'stft_VoiceRecognitionModel.pkl'
+
+#     pickle.dump(model, open(filename, 'wb'))
+
+# # Testing by loading the model
+# path = "/content/drive/MyDrive/AI_voice_data/TestingData/"
+# fname = "Akeel Athar_Test.wav"
+
+# if Image == "mfcc":
+#     # mfcc
+#     loaded_model = pickle.load(open('/content/drive/MyDrive/AI_voice_data/mfcc_VoiceRecognitionModel.pkl', 'rb'))
+
+# else:
+#     # stft
+#     loaded_model = pickle.load(open('/content/drive/MyDrive/AI_voice_data/stft_VoiceRecognitionModel.pkl', 'rb'))
+
+
+# expected, actual = new_voice_predict(path + fname, model, z, Image)
+
 # print("Voice Audio Results => Expected:{}, Actual:{}. Correct Prediction:{}".format(expected, actual, bool(expected==actual)))

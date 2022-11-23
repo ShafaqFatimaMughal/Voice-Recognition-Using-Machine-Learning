@@ -5,14 +5,16 @@ import pickle
 import tkinter as tk
 from tkinter import *
 from tkinter import filedialog as fd
+import os
 
+script_dir = os.path.dirname(__file__) #<-- absolute dir the script is in
 
-with open('train_mfcc_data.json', 'r', encoding='utf-8') as f: 
+with open(os.path.join(script_dir, 'Resources/train_mfcc_data.json'), 'r', encoding='utf-8') as f: 
     data = json.load(f) 
 z = np.array(data['mapping']) # get the mapping from index to corresponding names
 
 window = tk.Tk() 
-window.geometry("300x300") # window size
+window.geometry("300x200") # window size
 window.title("Voice Recognition")
 
 label1 = Label(window, text='Upload WAV File', width=25, font=('times',15,'bold')) # Main label
@@ -30,16 +32,20 @@ button1.grid(row=4, column=1) # button position
 def upload_file():
     model = var.get() # value of the radio button selected
 
-    if model == 'mfcc':        
-        loaded_model = pickle.load(open('VoiceRecognitionModel.pkl', 'rb')) # load the model from disk 
+    label2 = Label(window, text='Predicting Voice...', width=25, font=('times',10)) # add predicted name as label
+    label2.grid(row=5, column=1) # label position
+
+    if model == 'mfcc':  
+        filepath = os.path.join(script_dir, 'Resources/mfcc_VoiceRecognitionModel.pkl') 
+        loaded_model = pickle.load(open(filepath, 'rb')) # load the model from disk 
     else:
-        loaded_model = pickle.load(open('VoiceRecognitionModel.pkl', 'rb')) # load the model from disk
+        filepath = os.path.join(script_dir, 'Resources/stft_VoiceRecognitionModel.pkl') 
+        loaded_model = pickle.load(open(filepath, 'rb')) # load the model from disk
 
     filename = fd.askopenfilename() # filename of chosen file from file picker
-    pred, _ = new_voice_predict(filename, loaded_model, z) 
+    pred, _ = new_voice_predict(filename, loaded_model, z, model) 
 
-    label2 = Label(window, text='Predicted voice:\n'+str(pred), width=25, font=('times',10)) # add predicted name as label
-    label2.grid(row=5, column=1) # label position
+    label2.config(text='Predicted voice:\n'+str(pred)) # add predicted name as label
     print(pred)
 
 window.mainloop() # run the gui
